@@ -671,8 +671,16 @@ cmd_git() {
 
 cmd_extension_or_show() {
 	if ! cmd_extension "$@"; then
-		COMMAND="show"
-		cmd_show "$@"
+		die "pass: refusing the implicit \"show\" shorthand.
+
+Write the subcommand explicitly:
+
+    pass show $*
+
+This build drops the bare \"pass <entry>\" form, so every read of a secret
+carries the \"show\" keyword. That keeps the set of subcommands closed, which is
+what lets a shell-history grep -- and an agent permission rule -- tell a name
+listing apart from a secret read."
 	fi
 }
 
