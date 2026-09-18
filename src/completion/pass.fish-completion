@@ -61,6 +61,7 @@ end
 
 complete -c $PROG -f -n '__fish_pass_needs_command' -a help -d 'Command: show usage help'
 complete -c $PROG -f -n '__fish_pass_needs_command' -a version -d 'Command: show program version'
+complete -c $PROG -f -n '__fish_pass_needs_command' -a ext -d 'Command: run an extension by name'
 
 complete -c $PROG -f -n '__fish_pass_needs_command' -a init -d 'Command: initialize new password storage'
 complete -c $PROG -f -n '__fish_pass_uses_command init' -s p -l path -d 'Assign gpg-id for specified sub folder of password store'

@@ -66,4 +66,16 @@ test_expect_success 'CONTROL: "show" still reads the leaf' '
 	[[ -n $("$PASS" show svc/token) ]]
 '
 
+# STRICT: bare `pass` is a listing and nothing else -- with no argument the path
+# is empty, so cmd_show can only reach its directory branch. strict1 swept it
+# into the implicit-show refusal, which bought no safety and broke upstream's
+# most common invocation. Untested, that regression shipped for a whole release.
+test_expect_success 'bare "pass" lists the store' '
+	"$PASS" | grep -q "Password Store"
+'
+
+test_expect_success 'bare "pass" exits zero' '
+	"$PASS" >/dev/null
+'
+
 test_done

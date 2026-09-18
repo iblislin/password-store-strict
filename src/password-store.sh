@@ -692,19 +692,50 @@ cmd_git() {
 	fi
 }
 
-cmd_extension_or_show() {
-	if ! cmd_extension "$@"; then
-		die "pass: refusing the implicit \"show\" shorthand.
+# STRICT: upstream's fallback ran cmd_extension FIRST and fell back to cmd_show.
+# This build refuses both halves of that, and the extension half is the less
+# obvious one:
+#
+# An extension is arbitrary code that may print a secret, and its NAME is not
+# knowable to whoever writes the permission rules -- there is no closed set to
+# enumerate. Worse, an extension under SYSTEM_EXTENSION_DIR runs even when
+# PASSWORD_STORE_ENABLE_EXTENSIONS is unset, because that variable gates only
+# the per-store extension directory. So installing a package such as pass-otp
+# silently adds a spelling that reads a secret, carries no `show` keyword, and
+# matches no rule -- the same shape as the ls/list hole, and invisible for the
+# same reason: nothing about the config changes.
+#
+# Extensions still work; they now require the explicit `ext` keyword, so the
+# dangerous set stays closed and a rule can gate `pass ext *`.
+cmd_refuse_implicit() {
+	die "pass: refusing the implicit \"show\" shorthand.
 
 Write the subcommand explicitly:
 
     pass show $*
 
-This build drops the bare \"pass <entry>\" form, and separately stops ls/list
-decrypting a leaf. Those two together are what make every read of a secret carry
-the \"show\" keyword -- neither does it alone. That keeps the set of subcommands
-closed, which is what lets a shell-history grep -- and an agent permission rule
--- tell a name listing apart from a secret read."
+If \"$1\" is an extension, invoke it through the explicit keyword instead:
+
+    pass ext $*
+
+This build drops the bare \"pass <entry>\" form, stops ls/list decrypting a leaf,
+and stops an extension running without a keyword. Those three together are what
+make every read of a secret carry a keyword -- no one of them does it alone.
+That keeps the set of subcommands closed, which is what lets a shell-history
+grep -- and an agent permission rule -- tell a name listing apart from a secret
+read."
+}
+
+# STRICT: the explicit spelling for extensions. Unknown names fail loudly here
+# rather than falling through to a read, so the residual of a permission
+# enumeration stays a non-zero exit.
+cmd_extension_explicit() {
+	[[ $# -eq 0 ]] && die "Usage: $PROGRAM ext <extension-name> [args]"
+	if ! cmd_extension "$@"; then
+		die "$PROGRAM: no extension named \"$1\".
+
+Extensions are looked up in \$PASSWORD_STORE_DIR/.extensions (only when
+PASSWORD_STORE_ENABLE_EXTENSIONS=true) and in the system extension directory."
 	fi
 }
 
@@ -755,6 +786,13 @@ case "$1" in
 	rename|mv) shift;		cmd_copy_move "move" "$@" ;;
 	copy|cp) shift;			cmd_copy_move "copy" "$@" ;;
 	git) shift;			cmd_git "$@" ;;
-	*)				cmd_extension_or_show "$@" ;;
+	ext) shift;			cmd_extension_explicit "$@" ;;
+	# STRICT: bare `pass` is a listing and nothing else -- with no argument the
+	# path is empty, so cmd_show can only reach its directory branch. strict1
+	# swept it into the refusal along with `pass <entry>`, which bought no
+	# safety and broke upstream's most common invocation. LISTING_ONLY is set
+	# anyway, so the guard holds even if a caller ever arrives here with a path.
+	"") LISTING_ONLY=1;		cmd_show ;;
+	*)				cmd_refuse_implicit "$@" ;;
 esac
 exit 0

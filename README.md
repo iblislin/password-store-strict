@@ -1,11 +1,14 @@
 # password-store-strict
 
 A fork of [password-store](https://www.passwordstore.org/) (`pass`) by Jason A.
-Donenfeld, with **two behavioural changes**, both closing the same hole from
-opposite sides:
+Donenfeld, with **three behavioural changes**, all closing the same hole from
+different sides — *no invocation may read a secret without a keyword naming the
+action*:
 
 1. the implicit `show` shorthand is refused, so `pass <entry>` does not print;
-2. `ls` and `list` refuse a leaf, so a listing spelling cannot decrypt.
+2. `ls` and `list` refuse a leaf, so a listing spelling cannot decrypt;
+3. extensions require the explicit `ext` keyword, so an installed extension
+   cannot add an unknown spelling that reads.
 
 Everything else — the store format, the GPG handling, the completions,
 `passmenu` — is upstream's, unmodified.
@@ -29,7 +32,14 @@ $ pass ls svc/token
 pass: "ls" lists names; it does not read secrets.
 
     pass show svc/token
+
+$ pass otp svc/token            # even with pass-otp installed
+pass: refusing the implicit "show" shorthand.
+...
+    pass ext otp svc/token
 ```
+
+Bare `pass` still lists the whole store, as upstream does.
 
 ## Why
 
@@ -98,7 +108,30 @@ Two details of that second change are load-bearing:
   because an unset variable tests false and would reopen the hole for any future
   caller reaching `cmd_show` by another route.
 
-### What the first release got wrong
+**3 — extensions.** Upstream's fallback ran the extension lookup *first* and
+`show` second, so `pass <name>` executed an extension whenever one existed. An
+extension is arbitrary code that may print a secret, and its **name is not
+knowable to whoever writes the permission rules** — there is no set to
+enumerate. The fallback now refuses; `pass ext <name>` is the explicit spelling,
+and an unknown name fails loudly there rather than reaching a read.
+
+The case that motivates it is easy to miss: an extension under the **system**
+extension directory (`/usr/lib/password-store/extensions`) runs even when
+`PASSWORD_STORE_ENABLE_EXTENSIONS` is unset, because that variable gates only
+the per-store directory. So installing a package such as `pass-otp` silently
+added a spelling that reads a secret, carried no keyword, and matched no rule —
+and nothing about the config looked any different afterwards.
+
+| Before | After |
+|---|---|
+| `pass otp svc/token` | `pass ext otp svc/token` |
+
+**Bare `pass` was also restored.** With no argument the path is empty, so
+`cmd_show` can only reach its directory branch — it is a listing and nothing
+else. Change 1 had swept it into the refusal, which bought no safety and broke
+upstream's most common invocation.
+
+### What the earlier releases got wrong
 
 Worth stating plainly, because the fix is only meaningful next to it. Tag
 `1.7.4-strict1` shipped change 1 alone and claimed — in this README, and in the
@@ -106,11 +139,23 @@ program's own refusal message — that *every read of a secret carries the `show
 keyword*. That was false for a month: `pass ls svc/token` and
 `pass list svc/token` both still decrypted.
 
-Change 2, in `1.7.4-strict2`, is what makes the sentence true. The lesson is not
-about `pass`: **the claim lived in two places and both were wrong in the same
-way**, so fixing either one alone would have left the other asserting it. If you
-audit this fork, audit the refusal messages against the code, not against this
-file.
+Change 2, in `1.7.4-strict2`, closed that. But strict2 was not the end either:
+an audit of the same question — *which spellings reach plaintext without a
+keyword?* — then found the extension fallback, which is the same shape again and
+was measured to print with `PASSWORD_STORE_ENABLE_EXTENSIONS` unset. Change 3,
+in `1.7.4-strict3`, closes it.
+
+Two lessons, neither of them about `pass`:
+
+- **The claim lived in two places and both were wrong in the same way** — this
+  README and the program's own refusal message. Fixing either alone would have
+  left the other asserting it. If you audit this fork, audit the refusal
+  messages against the code, not against this file.
+- **Two of the three holes were invisible because nothing about the
+  configuration changed.** `ls` was already in an allowlist; the system
+  extension directory is empty until some package fills it. A guard whose
+  absence looks identical to its presence needs a behavioural test, which is why
+  each change here has one (`tests/t0020`–`t0022`).
 
 ## Using it with Claude Code permissions
 
@@ -138,7 +183,8 @@ distinguish a name listing from a secret read:
       "Bash(pass mv *)",
       "Bash(pass cp *)",
       "Bash(pass git *)",
-      "Bash(pass init *)"
+      "Bash(pass init *)",
+      "Bash(pass ext *)"
     ]
   }
 }
@@ -151,12 +197,19 @@ and it *decrypts every entry* to search their contents.
 `pass ls *` does not match `pass list *`. Leaving it out is not dangerous here —
 the residual is the refusal, not a read — but it is a prompt you did not intend.
 
+**`pass ext *` belongs in `ask`, whatever the extension does.** It is the one
+subcommand whose behaviour this repository does not control.
+
 ### Why enumerating subcommands is sound here, and is not on upstream
 
 The list above does not need to be complete, and that is the whole point of the
-fork. Anything it misses — a typo, an unknown subcommand, a bare entry path —
-now hits the refusal and exits non-zero. **The residual of the enumeration is a
-loud failure, not a printed credential.**
+fork. Anything it misses — a typo, an unknown subcommand, a bare entry path, the
+name of an installed extension — now hits the refusal and exits non-zero. **The
+residual of the enumeration is a loud failure, not a printed credential.**
+
+That sentence was false in `strict1` (via `ls`) and again in `strict2` (via
+extensions). It is worth re-testing rather than trusting, which is what
+`tests/t0021` and `tests/t0022` are for.
 
 On upstream `pass` the same list would be unsound: the residual there is `show`,
 so a single omission is a silent secret read. That is why a blanket rule over
@@ -241,14 +294,16 @@ $ PASSWORD_STORE_DIR="$D" pass ls svc             # lists the directory
 $ PASSWORD_STORE_DIR="$D" pass ls svc/token       # refused, exit 1
 $ PASSWORD_STORE_DIR="$D" pass list svc/token     # refused, exit 1
 $ PASSWORD_STORE_DIR="$D" pass svc/token          # refused, exit 1
+$ PASSWORD_STORE_DIR="$D" pass                    # lists the whole store
 $ PASSWORD_STORE_DIR="$D" pass show svc/token     # reaches gpg, leaks nothing
 ```
 
 That last line is the control: without it, a suite in which everything is
 refused cannot tell a working guard from a broken `pass`.
 
-The repository's own suite covers both changes —
-`tests/t0020-show-tests.sh` and `tests/t0021-list-tests.sh`:
+The repository's own suite covers all three changes —
+`tests/t0020-show-tests.sh`, `tests/t0021-list-tests.sh` and
+`tests/t0022-extension-tests.sh`:
 
 ```console
 $ make test

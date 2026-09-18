@@ -26,15 +26,40 @@ utility provides a series of commands for manipulating the password store,
 allowing the user to add, remove, edit, synchronize, generate, and manipulate
 passwords.
 
-If no COMMAND is specified, COMMAND defaults to either
+This build differs from upstream here, and the difference is the point of the
+build: \fBCOMMAND is never inferred.\fP Upstream defaults an unrecognised COMMAND
+to
 .B show
 or
 .BR ls ,
-depending on the type of specifier in ARGS. Alternatively, if \fIPASSWORD_STORE_ENABLE_EXTENSIONS\fP
-is set to "true", and the file \fI.extensions/COMMAND.bash\fP exists inside the
-password store and is executable, then it is sourced into the environment,
-passing any arguments and environment variables. Extensions existing in a
-system-wide directory, only installable by the administrator, are always enabled.
+and before that runs an extension if one matches the name. Both are refused
+here, so that no invocation reads a secret without a keyword naming the action.
+The three refusals are:
+
+.TP
+\fBpass\fP \fIpass-name\fP
+Refused; write
+.B pass show
+.I pass-name
+instead.
+.TP
+\fBpass ls\fP \fIpass-name\fP, \fBpass list\fP \fIpass-name\fP
+Refused when \fIpass-name\fP is a leaf; the listing spellings never decrypt.
+.TP
+\fBpass\fP \fIextension-name\fP
+Refused; write
+.B pass ext
+.I extension-name
+instead. This matters most for extensions in the system-wide directory, which
+are always enabled regardless of \fIPASSWORD_STORE_ENABLE_EXTENSIONS\fP — so
+without the explicit keyword, installing one would silently add a spelling that
+reads a secret.
+
+.PP
+With no COMMAND and no ARGS at all,
+.B pass
+still lists the whole store, as upstream does: with an empty path there is
+nothing to decrypt.
 
 Otherwise COMMAND must be one of the valid commands listed below.
 

@@ -103,6 +103,7 @@ _pass () {
 			"cp:Copy the password"
 			"rm:Remove the password"
 			"git:Call git on the password store"
+			"ext:Run an extension by name (required; the implicit form is refused)"
 			"version:Output version information"
 			"help:Output help message"
 		)
