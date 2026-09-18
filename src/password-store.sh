@@ -383,6 +383,29 @@ cmd_show() {
 	local passfile="$PREFIX/$path.gpg"
 	check_sneaky_paths "$path"
 	if [[ -f $passfile ]]; then
+		# STRICT: `ls`/`list` name a listing, so they must not decrypt.
+		#
+		# Upstream routes show, ls and list to this one function, and this
+		# branch prints plaintext whenever the path resolves to a file. That
+		# makes `pass ls secrets/token` a full read wearing a listing's name.
+		#
+		# It is not only a human-readability problem. The rule that gates an
+		# agent's access is a pattern match over the command string, so a
+		# config can allow `pass ls *` while gating `pass show *` and believe
+		# it has separated a name listing from a secret read. It has not --
+		# both spellings reach this line. Found 2026-09-18 with exactly that
+		# pair live in a settings file.
+		#
+		# The check goes here rather than in a parallel cmd_list so that the
+		# option parsing above is not duplicated: a second copy of the getopt
+		# block would drift, and the drift would be silent.
+		[[ $LISTING_ONLY -eq 1 ]] && die "$PROGRAM: \"$COMMAND\" lists names; it does not read secrets.
+
+    $PROGRAM show $path
+
+This build routes ls/list to a listing-only path. Upstream aliases them to
+show, so \`$PROGRAM ls <entry>\` decrypts and prints -- which silently defeats
+any rule that allows a listing and gates a read."
 		if [[ $clip -eq 0 && $qrcode -eq 0 ]]; then
 			pass="$($GPG -d "${GPG_OPTS[@]}" "$passfile" | $BASE64)" || exit $?
 			echo "$pass" | $BASE64 -d
@@ -710,11 +733,18 @@ cmd_extension() {
 PROGRAM="${0##*/}"
 COMMAND="$1"
 
+# STRICT: set for the listing spellings only, and read in cmd_show's file
+# branch. Declared here with an explicit default so that `set -u`, or any
+# future caller reaching cmd_show by another route, cannot make the guard
+# silently absent -- an unset variable would test false and reopen the hole.
+LISTING_ONLY=0
+
 case "$1" in
 	init) shift;			cmd_init "$@" ;;
 	help|--help) shift;		cmd_usage "$@" ;;
 	version|--version) shift;	cmd_version "$@" ;;
-	show|ls|list) shift;		cmd_show "$@" ;;
+	show) shift;			cmd_show "$@" ;;
+	ls|list) LISTING_ONLY=1; shift;	cmd_show "$@" ;;
 	find|search) shift;		cmd_find "$@" ;;
 	grep) shift;			cmd_grep "$@" ;;
 	insert|add) shift;		cmd_insert "$@" ;;
