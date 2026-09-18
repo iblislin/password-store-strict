@@ -20,9 +20,9 @@
 
 pkgname=pass-strict
 pkgver=1.7.4
-pkgrel=1
-_tag="$pkgver-strict1"
-pkgdesc='Stores, retrieves, generates and synchronizes passwords securely - local build requiring an explicit `show`'
+pkgrel=2
+_tag="$pkgver-strict2"
+pkgdesc='Stores, retrieves, generates and synchronizes passwords securely - local build requiring an explicit `show`, with ls/list refusing to decrypt'
 arch=('any')
 url='https://github.com/iblislin/password-store-strict'
 license=('GPL2')
