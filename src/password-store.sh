@@ -700,10 +700,11 @@ Write the subcommand explicitly:
 
     pass show $*
 
-This build drops the bare \"pass <entry>\" form, so every read of a secret
-carries the \"show\" keyword. That keeps the set of subcommands closed, which is
-what lets a shell-history grep -- and an agent permission rule -- tell a name
-listing apart from a secret read."
+This build drops the bare \"pass <entry>\" form, and separately stops ls/list
+decrypting a leaf. Those two together are what make every read of a secret carry
+the \"show\" keyword -- neither does it alone. That keeps the set of subcommands
+closed, which is what lets a shell-history grep -- and an agent permission rule
+-- tell a name listing apart from a secret read."
 	fi
 }
 

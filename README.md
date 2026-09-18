@@ -1,20 +1,32 @@
 # password-store-strict
 
 A fork of [password-store](https://www.passwordstore.org/) (`pass`) by Jason A.
-Donenfeld, with **one behavioural change**: the implicit `show` shorthand is
-refused. Everything else — the store format, the GPG handling, the completions,
+Donenfeld, with **two behavioural changes**, both closing the same hole from
+opposite sides:
+
+1. the implicit `show` shorthand is refused, so `pass <entry>` does not print;
+2. `ls` and `list` refuse a leaf, so a listing spelling cannot decrypt.
+
+Everything else — the store format, the GPG handling, the completions,
 `passmenu` — is upstream's, unmodified.
 
 Upstream's own `README`, man page and `COPYING` are kept in the tree. Licence is
 unchanged: **GPL-2.0-or-later**.
 
 ```console
-$ pass ls                       # unchanged
-$ pass show svc/token           # unchanged
+$ pass ls                       # unchanged — lists names
+$ pass ls svc/                  # unchanged — lists names under a directory
+$ pass show svc/token           # unchanged — reads the secret
+
 $ pass svc/token
 pass: refusing the implicit "show" shorthand.
 
 Write the subcommand explicitly:
+
+    pass show svc/token
+
+$ pass ls svc/token
+pass: "ls" lists names; it does not read secrets.
 
     pass show svc/token
 ```
@@ -43,21 +55,62 @@ secret read stops for confirmation — and with an open dangerous set there is n
 pattern that expresses that. You are left gating *every* `pass` invocation,
 including the harmless ones.
 
-This fork closes the set. After it, every read of a secret carries the `show`
-keyword, so `pass show` is greppable in history and matchable by a rule.
+That table is also only half the problem, and the half that is easy to miss:
+**`ls` is in the safe column because of what it is named, not because of what it
+does.** Upstream routes `show`, `ls` and `list` to one function, which decrypts
+whenever the path resolves to a file — so `pass ls svc/token` is a full read
+wearing a listing's name, and a rule that allows listings while gating reads has
+separated nothing. Change 2 is what makes the safe column true.
 
-## The change
+Together the two changes close the set. After them, every read of a secret
+carries the `show` keyword, so `pass show` is greppable in history and matchable
+by a rule — and `ls` means what it says.
 
-One function, `cmd_extension_or_show` in `src/password-store.sh`. The extension
-lookup still runs first and is untouched; only the show fallback is replaced, and
-the refusal exits non-zero so a caller can branch on it.
+## The changes
 
-Two forms stop working, both with the same fix — add `show`:
+Both are in `src/password-store.sh`.
+
+**1 — the implicit shorthand.** One function, `cmd_extension_or_show`. The
+extension lookup still runs first and is untouched; only the show fallback is
+replaced, and the refusal exits non-zero so a caller can branch on it.
 
 | Before | After |
 |---|---|
 | `pass svc/token` | `pass show svc/token` |
 | `pass -c svc/token` | `pass show -c svc/token` |
+
+**2 — the listing spellings.** The dispatcher sets `LISTING_ONLY=1` for `ls` and
+`list` before calling `cmd_show`, and `cmd_show`'s file branch refuses when it is
+set, naming `show` as the replacement. Directory listings and bare `pass ls` are
+untouched.
+
+| Before | After |
+|---|---|
+| `pass ls svc/token` (decrypted) | `pass show svc/token` |
+| `pass list svc/token` (decrypted) | `pass show svc/token` |
+
+Two details of that second change are load-bearing:
+
+- the guard sits **inside `cmd_show`**, not in a parallel `cmd_list`, so the
+  `getopt` block above it is not duplicated — a second copy would drift, and the
+  drift would be silent;
+- `LISTING_ONLY=0` is initialised at the dispatcher rather than left unset,
+  because an unset variable tests false and would reopen the hole for any future
+  caller reaching `cmd_show` by another route.
+
+### What the first release got wrong
+
+Worth stating plainly, because the fix is only meaningful next to it. Tag
+`1.7.4-strict1` shipped change 1 alone and claimed — in this README, and in the
+program's own refusal message — that *every read of a secret carries the `show`
+keyword*. That was false for a month: `pass ls svc/token` and
+`pass list svc/token` both still decrypted.
+
+Change 2, in `1.7.4-strict2`, is what makes the sentence true. The lesson is not
+about `pass`: **the claim lived in two places and both were wrong in the same
+way**, so fixing either one alone would have left the other asserting it. If you
+audit this fork, audit the refusal messages against the code, not against this
+file.
 
 ## Using it with Claude Code permissions
 
@@ -70,6 +123,7 @@ distinguish a name listing from a secret read:
     "allow": [
       "Bash(pass)",
       "Bash(pass ls *)",
+      "Bash(pass list *)",
       "Bash(pass find *)",
       "Bash(pass help)",
       "Bash(pass version)"
@@ -90,8 +144,12 @@ distinguish a name listing from a secret read:
 }
 ```
 
-⚠️ **`pass grep` belongs in `ask`, not `allow`.** It is one character from
-`find`, and it *decrypts every entry* to search their contents.
+**`pass grep` belongs in `ask`, not `allow`.** It is one character from `find`,
+and it *decrypts every entry* to search their contents.
+
+**`list` needs its own entry.** It is an alias of `ls`, and a rule matching
+`pass ls *` does not match `pass list *`. Leaving it out is not dangerous here —
+the residual is the refusal, not a read — but it is a prompt you did not intend.
 
 ### Why enumerating subcommands is sound here, and is not on upstream
 
@@ -103,6 +161,12 @@ loud failure, not a printed credential.**
 On upstream `pass` the same list would be unsound: the residual there is `show`,
 so a single omission is a silent secret read. That is why a blanket rule over
 every `pass` invocation is the only safe option without this change.
+
+This soundness is a property of the *fork*, not of the rule list, so it has to be
+re-checked whenever either side moves. A tripwire is worth having: on Arch,
+`pacman -Q pass` must report `pass-strict` at `1.7.4-2` or later. If the
+distribution package ever returns, a blanket `Bash(pass *)` in `ask` is the only
+safe form again, and it must go back the same day.
 
 ### Two things worth knowing about the rules
 
@@ -138,6 +202,10 @@ It is named `pass-strict` with `conflicts=('pass')`, deliberately:
 Its file list is matched against `pacman -Ql pass`, so `passmenu`, the bash, zsh
 and fish completions and `redact_pass.vim` are all still installed.
 
+`PKGBUILD` builds from the git **tag**, so a source change is not shipped until
+the tag moves and `pkgrel` bumps. That also means a successful `makepkg` says
+nothing about what is on any branch — check the branch separately.
+
 ### Rolling back
 
 ```console
@@ -163,12 +231,25 @@ $ git merge <new upstream tag>
 
 ## Testing without touching a real store
 
-`ls` and `find` walk the directory tree and never decrypt, so a fixture needs no
-GPG key at all:
+Listing walks the directory tree and never decrypts, so a fixture needs no GPG
+key at all — the refusals all fire before `gpg` is reached:
 
 ```console
 $ D=$(mktemp -d); mkdir -p "$D/svc"; echo 0 > "$D/.gpg-id"; : > "$D/svc/token.gpg"
-$ PASSWORD_STORE_DIR="$D" pass ls              # lists svc/token
-$ PASSWORD_STORE_DIR="$D" pass svc/token       # refused, exit 1
-$ PASSWORD_STORE_DIR="$D" pass show svc/token  # reaches gpg, leaks nothing
+$ PASSWORD_STORE_DIR="$D" pass ls                 # lists svc/token
+$ PASSWORD_STORE_DIR="$D" pass ls svc             # lists the directory
+$ PASSWORD_STORE_DIR="$D" pass ls svc/token       # refused, exit 1
+$ PASSWORD_STORE_DIR="$D" pass list svc/token     # refused, exit 1
+$ PASSWORD_STORE_DIR="$D" pass svc/token          # refused, exit 1
+$ PASSWORD_STORE_DIR="$D" pass show svc/token     # reaches gpg, leaks nothing
+```
+
+That last line is the control: without it, a suite in which everything is
+refused cannot tell a working guard from a broken `pass`.
+
+The repository's own suite covers both changes —
+`tests/t0020-show-tests.sh` and `tests/t0021-list-tests.sh`:
+
+```console
+$ make test
 ```
