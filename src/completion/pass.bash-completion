@@ -97,12 +97,20 @@ _pass()
 					_pass_complete_keys
 				fi
 				;;
-			ls|list|edit)
+			# STRICT: ls/list take a FOLDER, never a leaf -- completing leaves
+			# here proposes the exact argument the build refuses.
+			ls|list)
+				_pass_complete_folders
+				;;
+			edit)
 				_pass_complete_entries
 				;;
-			show|-*)
-				COMPREPLY+=($(compgen -W "-c --clip" -- ${cur}))
+			show)
+				COMPREPLY+=($(compgen -W "-c --clip -q --qrcode" -- ${cur}))
 				_pass_complete_entries 1
+				;;
+			ext)
+				COMPREPLY+=($(compgen -W "${PASSWORD_STORE_EXTENSION_COMMANDS[*]}" -- ${cur}))
 				;;
 			insert)
 				COMPREPLY+=($(compgen -W "-e --echo -m --multiline -f --force" -- ${cur}))
@@ -132,12 +140,23 @@ _pass()
 		# }
 		#
 		# and add the command to the $PASSWORD_STORE_EXTENSION_COMMANDS array
-		if [[ " ${PASSWORD_STORE_EXTENSION_COMMANDS[*]} " == *" ${COMP_WORDS[1]} "* ]] && type "__password_store_extension_complete_${COMP_WORDS[1]}" &> /dev/null; then
-			"__password_store_extension_complete_${COMP_WORDS[1]}"
+		#
+		# STRICT: the extension name has moved from word 1 to word 2, because
+		# extensions are now invoked as `pass ext <name>`. Keying the lookup on
+		# word 1 would silently never fire.
+		local _ext_word=""
+		if [[ ${COMP_WORDS[1]} == ext ]]; then
+			_ext_word="${COMP_WORDS[2]}"
+		fi
+		if [[ -n $_ext_word && " ${PASSWORD_STORE_EXTENSION_COMMANDS[*]} " == *" ${_ext_word} "* ]] && type "__password_store_extension_complete_${_ext_word}" &> /dev/null; then
+			"__password_store_extension_complete_${_ext_word}"
 		fi
 	else
+		# STRICT: no `_pass_complete_entries 1` here. Offering entry names at
+		# position 1 proposes `pass <entry>`, which this build refuses -- tab
+		# completion is where people learn a CLI, and it was teaching the one
+		# spelling the fork exists to remove.
 		COMPREPLY+=($(compgen -W "${commands}" -- ${cur}))
-		_pass_complete_entries 1
 	fi
 }
 

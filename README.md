@@ -155,7 +155,16 @@ Two lessons, neither of them about `pass`:
   configuration changed.** `ls` was already in an allowlist; the system
   extension directory is empty until some package fills it. A guard whose
   absence looks identical to its presence needs a behavioural test, which is why
-  each change here has one (`tests/t0020`–`t0022`).
+  each change here has one (`tests/t0021`–`tests/t0023`).
+- **That claim was itself false when first written, which is the third time this
+  document asserted a property the code did not have.** It said all three
+  changes were covered while change 1 — the headline guarantee — had no test at
+  all: `tests/t0020-show-tests.sh` was byte-identical to upstream's and spells
+  `show` in every assertion, so reverting the dispatcher would have restored the
+  silent read with the suite fully green. `tests/t0023-implicit-refusal-tests.sh`
+  is what makes the sentence true. **A claim about test coverage is worth no
+  more than a claim about behaviour, and is checkable the same way:**
+  `git diff upstream/master -- tests/`.
 
 ## Using it with Claude Code permissions
 
@@ -200,6 +209,37 @@ the residual is the refusal, not a read — but it is a prompt you did not inten
 **`pass ext *` belongs in `ask`, whatever the extension does.** It is the one
 subcommand whose behaviour this repository does not control.
 
+**Spell out the aliases you rely on.** The dispatcher also accepts `search`
+(find), `add` (insert), `remove` and `delete` (rm), `copy` (cp), `rename` (mv),
+`--help` and `--version`. None are in the block above, and unlike an unknown
+subcommand they do **not** hit the refusal — so they match no rule at all. That
+is not a read path, but it is not the loud failure the next section describes
+either. Add the spellings you use.
+
+### Two limits this fork does not close
+
+Both were measured, and neither is fixed by any change above. They are here
+because a document that only lists what it closes reads as a completeness claim.
+
+**`pass git` is a general-purpose escape hatch.** Git can be made to run
+arbitrary commands — `pass git -c 'alias.x=!<anything>' x` executes it — and
+`pass git init` deliberately configures `diff.gpg.textconv`, whose whole purpose
+is to render `.gpg` blobs as plaintext, so `pass git diff` and `pass git log -p`
+are reads that carry no `show`. Approving a `pass git …` because it *looks* like
+`log` or `status` grants both. It stays in `ask` and is deliberately not
+restricted: narrowing it would break the legitimate workflow, and a keyword that
+means "run git" cannot be made to mean less than git.
+
+**The environment is a second input channel that no command-string rule sees.**
+`EDITOR=cat pass edit <entry>` prints the plaintext; `PASSWORD_STORE_KEY=<other>
+pass cp <entry> <copy>` re-encrypts the secret to a different recipient while
+the command reads as a harmless copy. `PASSWORD_STORE_EXTENSIONS_DIR` and
+`PASSWORD_STORE_GPG_OPTS` have the same shape, and the variable need not appear
+in the matched string at all — an earlier permitted command can `export` it.
+**Command-string rules are pattern matches, not a sandbox.** Everything this
+fork buys is about making the *command* honest; it cannot make the environment
+honest.
+
 ### Why enumerating subcommands is sound here, and is not on upstream
 
 The list above does not need to be complete, and that is the whole point of the
@@ -217,7 +257,10 @@ every `pass` invocation is the only safe option without this change.
 
 This soundness is a property of the *fork*, not of the rule list, so it has to be
 re-checked whenever either side moves. A tripwire is worth having: on Arch,
-`pacman -Q pass` must report `pass-strict` at `1.7.4-2` or later. If the
+`pacman -Q pass` must report `pass-strict` at `1.7.4-4` or later — **every
+earlier build has a known read path that names no action**, so a bound left
+behind admits exactly the version this document describes as unsound. Move it
+with each change that closes a hole. If the
 distribution package ever returns, a blanket `Bash(pass *)` in `ask` is the only
 safe form again, and it must go back the same day.
 
@@ -302,8 +345,9 @@ That last line is the control: without it, a suite in which everything is
 refused cannot tell a working guard from a broken `pass`.
 
 The repository's own suite covers all three changes —
-`tests/t0020-show-tests.sh`, `tests/t0021-list-tests.sh` and
-`tests/t0022-extension-tests.sh`:
+`tests/t0021-list-tests.sh` (change 2), `tests/t0022-extension-tests.sh`
+(change 3, both the per-store and the install-shaped system lookup) and
+`tests/t0023-implicit-refusal-tests.sh` (change 1):
 
 ```console
 $ make test

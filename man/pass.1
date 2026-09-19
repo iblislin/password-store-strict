@@ -199,6 +199,19 @@ is set to \fItrue\fP, then all commits will be signed using \fIuser.signingkey\f
 default git signing key. This config key may be turned on using:
 .B `pass git config --bool --add pass.signcommits true`
 .TP
+\fBext\fP \fIextension-name\fP [\fIargs\fP...]
+Run the extension named \fIextension-name\fP, passing any remaining arguments
+and environment variables. Extensions are looked up in the system extension
+directory, and in \fIPASSWORD_STORE_DIR/.extensions\fP when
+\fIPASSWORD_STORE_ENABLE_EXTENSIONS\fP is "true". If no extension of that name
+exists, this exits non-zero rather than falling through to any other command;
+if one does, its own exit status is propagated.
+
+The keyword is required in this build. Upstream runs an extension whenever an
+unrecognised COMMAND matches one, and extensions in the system-wide directory
+are enabled with no opt-in — so without the keyword, installing an extension
+package silently adds a spelling that reads a secret and names no action.
+.TP
 \fBhelp\fP
 Show usage message.
 .TP
@@ -264,12 +277,14 @@ Search Terms: .com
 Alternatively, "\fBpass search .com\fP".
 .TP
 Show existing password
-.B zx2c4@laptop ~ $ pass Email/zx2c4.com 
+.B zx2c4@laptop ~ $ pass show Email/zx2c4.com
 .br
-sup3rh4x3rizmynam3 
+sup3rh4x3rizmynam3
+.br
+(The \fBshow\fP keyword is required in this build; \fBpass Email/zx2c4.com\fP exits 1.)
 .TP
 Copy existing password to clipboard
-.B zx2c4@laptop ~ $ pass -c Email/zx2c4.com 
+.B zx2c4@laptop ~ $ pass show -c Email/zx2c4.com
 .br
 Copied Email/jason@zx2c4.com to clipboard. Will clear in 45 seconds.
 .TP

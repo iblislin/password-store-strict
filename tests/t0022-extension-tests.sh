@@ -17,8 +17,12 @@ cd "$(dirname "$0")"
 # why this needs a behavioural test rather than a comment.
 #
 # SYSTEM_EXTENSION_DIR is empty in the source tree and only filled in at install
-# time, so these tests exercise the per-store directory. It is the same code
-# path in cmd_extension; what differs is only which of the two lookups matches.
+# time. Most of these tests therefore exercise the per-store directory -- but
+# that is NOT sufficient on its own: a regression restoring the fallback for the
+# system path only would leave every per-store assertion green, and the system
+# path is precisely the one that needs no opt-in and that a distribution package
+# fills. The last block builds an install-shaped copy, the same substitution the
+# Makefile performs, so both lookups are covered in both directions.
 
 test_expect_success 'Set up a store and a store-local extension' '
 	"$PASS" init $KEY1 &&
@@ -58,6 +62,63 @@ test_expect_success 'ext does not become a back door to show' '
 
 test_expect_success 'CONTROL: show still reads the secret' '
 	[[ -n $("$PASS" show cred1) ]]
+'
+
+# Exit status. Upstream's cmd_extension ended in an unconditional `return 0`,
+# so a failing extension reported success to anything scripting around pass --
+# and "no such extension" and "the extension failed" were indistinguishable.
+# The sentinel makes them separable; these pin all three outcomes.
+test_expect_success 'Set up extensions with known exit statuses' '
+	printf "#!/usr/bin/env bash\nexit 42\n" > "$PASSWORD_STORE_DIR/.extensions/failing.bash" &&
+	chmod +x "$PASSWORD_STORE_DIR/.extensions/failing.bash" &&
+	printf "#!/usr/bin/env bash\nexit 0\n" > "$PASSWORD_STORE_DIR/.extensions/okext.bash" &&
+	chmod +x "$PASSWORD_STORE_DIR/.extensions/okext.bash"
+'
+
+test_expect_success 'A failing extension propagates its exit status' '
+	PASSWORD_STORE_ENABLE_EXTENSIONS=true "$PASS" ext failing
+	state=$?
+	[[ $state -eq 42 ]]
+'
+
+test_expect_success 'CONTROL: a succeeding extension still exits zero' '
+	PASSWORD_STORE_ENABLE_EXTENSIONS=true "$PASS" ext okext
+'
+
+test_expect_success 'A missing extension is distinguishable from a failing one' '
+	PASSWORD_STORE_ENABLE_EXTENSIONS=true "$PASS" ext nosuchextension
+	state=$?
+	[[ $state -ne 0 ]] && [[ $state -ne 42 ]]
+'
+
+# The system extension directory. This is the case change 3 exists for: it runs
+# regardless of PASSWORD_STORE_ENABLE_EXTENSIONS, because that variable gates
+# only the per-store directory. Build an install-shaped copy the way the
+# Makefile does, so the lookup that a pass-otp package would populate is
+# actually exercised.
+test_expect_success 'Set up an install-shaped pass with a system extension' '
+	mkdir -p sysext-dir &&
+	printf "#!/usr/bin/env bash\necho SYSTEM_EXTENSION_RAN\n" > sysext-dir/sysprobe.bash &&
+	chmod +x sysext-dir/sysprobe.bash &&
+	sed "s:^SYSTEM_EXTENSION_DIR=.*:SYSTEM_EXTENSION_DIR=\"$(pwd)/sysext-dir\":" "$PASS" > pass-sysext &&
+	chmod +x pass-sysext &&
+	grep -q "^SYSTEM_EXTENSION_DIR=\"$(pwd)/sysext-dir\"$" pass-sysext
+'
+
+test_expect_success 'CONTROL: the system extension is reachable at all' '
+	[[ $(./pass-sysext ext sysprobe) == "SYSTEM_EXTENSION_RAN" ]]
+'
+
+test_expect_success 'A system extension does NOT run without the ext keyword' '
+	test_must_fail ./pass-sysext sysprobe
+'
+
+test_expect_success 'The system-extension refusal never runs it' '
+	! ./pass-sysext sysprobe 2>&1 | grep -q SYSTEM_EXTENSION_RAN
+'
+
+test_expect_success 'The system extension is gated even with extensions disabled' '
+	PASSWORD_STORE_ENABLE_EXTENSIONS=false test_must_fail ./pass-sysext sysprobe
 '
 
 test_done

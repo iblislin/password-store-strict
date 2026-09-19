@@ -280,13 +280,15 @@ cmd_usage() {
 	    $PROGRAM init [--path=subfolder,-p subfolder] gpg-id...
 	        Initialize new password storage and use gpg-id for encryption.
 	        Selectively reencrypt existing passwords using new gpg-id.
-	    $PROGRAM [ls] [subfolder]
-	        List passwords.
+	    $PROGRAM ls [subfolder]
+	        List password names. Refuses a pass-name: listing never decrypts.
 	    $PROGRAM find pass-names...
 	    	List passwords that match pass-names.
-	    $PROGRAM [show] [--clip[=line-number],-c[line-number]] pass-name
+	    $PROGRAM show [--clip[=line-number],-c[line-number]] pass-name
 	        Show existing password and optionally put it on the clipboard.
 	        If put on the clipboard, it will be cleared in $CLIP_TIME seconds.
+	        The "show" keyword is REQUIRED in this build; "$PROGRAM pass-name"
+	        is refused so that every read of a secret names the action.
 	    $PROGRAM grep [GREPOPTIONS] search-string
 	        Search for password files containing search-string when decrypted.
 	    $PROGRAM insert [--echo,-e | --multiline,-m] [--force,-f] pass-name
@@ -308,11 +310,25 @@ cmd_usage() {
 	        Copies old-path to new-path, optionally forcefully, selectively reencrypting.
 	    $PROGRAM git git-command-args...
 	        If the password store is a git repository, execute a git command
-	        specified by git-command-args.
+	        specified by git-command-args. NOTE: this is a general-purpose
+	        escape hatch -- git can be made to run arbitrary commands and to
+	        render stored secrets as plaintext. Gate it accordingly.
+	    $PROGRAM ext extension-name [args]
+	        Run an extension by name. The keyword is REQUIRED in this build;
+	        "$PROGRAM extension-name" is refused, because a system-wide
+	        extension is enabled without any opt-in and would otherwise add an
+	        unknown spelling that reads a secret.
 	    $PROGRAM help
 	        Show this text.
 	    $PROGRAM version
 	        Show version information.
+
+	This build refuses three forms upstream accepts, so that no invocation reads
+	a secret without a keyword naming the action:
+	    $PROGRAM pass-name              ->  $PROGRAM show pass-name
+	    $PROGRAM ls pass-name           ->  $PROGRAM show pass-name
+	    $PROGRAM extension-name         ->  $PROGRAM ext extension-name
+	Bare "$PROGRAM" still lists the whole store, as upstream does.
 
 	More information may be found in the pass(1) man page.
 	_EOF
@@ -731,15 +747,30 @@ read."
 # enumeration stays a non-zero exit.
 cmd_extension_explicit() {
 	[[ $# -eq 0 ]] && die "Usage: $PROGRAM ext <extension-name> [args]"
-	if ! cmd_extension "$@"; then
-		die "$PROGRAM: no extension named \"$1\".
+	local name="$1"
+	cmd_extension "$@"
+	local state=$?
+	# 127 is cmd_extension's "no such extension" sentinel, distinct from any
+	# status the extension itself returned. Without the distinction a failing
+	# extension is indistinguishable from a missing one -- and upstream's
+	# unconditional `return 0` made both look like success.
+	if [[ $state -eq $EXTENSION_NOT_FOUND ]]; then
+		local searched="the system extension directory"
+		[[ -n $SYSTEM_EXTENSION_DIR ]] && searched="$SYSTEM_EXTENSION_DIR"
+		die "$PROGRAM: no extension named \"$name\".
 
-Extensions are looked up in \$PASSWORD_STORE_DIR/.extensions (only when
-PASSWORD_STORE_ENABLE_EXTENSIONS=true) and in the system extension directory."
+Searched:
+    $searched
+    $EXTENSIONS/$name.bash (only when PASSWORD_STORE_ENABLE_EXTENSIONS=true; it is currently ${PASSWORD_STORE_ENABLE_EXTENSIONS:-unset})"
 	fi
+	# The script ends in `exit 0`, so a status that is not exited here is lost.
+	exit $state
 }
 
 SYSTEM_EXTENSION_DIR=""
+# STRICT: a sentinel distinct from any status an extension may return, so
+# "no such extension" and "the extension failed" are separable by the caller.
+EXTENSION_NOT_FOUND=127
 cmd_extension() {
 	check_sneaky_paths "$1"
 	local user_extension system_extension extension
@@ -751,11 +782,13 @@ cmd_extension() {
 	elif [[ -n $system_extension && -f $system_extension && -x $system_extension ]]; then
 		extension="$system_extension"
 	else
-		return 1
+		return $EXTENSION_NOT_FOUND
 	fi
 	shift
 	source "$extension" "$@"
-	return 0
+	# STRICT: upstream returned 0 unconditionally here, so a failing extension
+	# reported success to anything scripting around pass.
+	return $?
 }
 
 #

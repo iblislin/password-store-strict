@@ -101,11 +101,10 @@ complete -c $PROG -f -n '__fish_pass_uses_command edit' -a "(__fish_pass_print_e
 complete -c $PROG -f -n '__fish_pass_needs_command' -a show -d 'Command: show existing password'
 complete -c $PROG -f -n '__fish_pass_uses_command show' -s c -l clip -d 'Put password in clipboard'
 complete -c $PROG -f -n '__fish_pass_uses_command show' -a "(__fish_pass_print_entries)"
-# When no command is given, `show` is defaulted.
-complete -c $PROG -f -n '__fish_pass_needs_command' -s c -l clip -d 'Put password in clipboard'
-complete -c $PROG -f -n '__fish_pass_needs_command' -a "(__fish_pass_print_entries)"
-complete -c $PROG -f -n '__fish_pass_uses_command -c' -a "(__fish_pass_print_entries)"
-complete -c $PROG -f -n '__fish_pass_uses_command --clip' -a "(__fish_pass_print_entries)"
+# STRICT: upstream defaulted a bare command to `show` and completed entry names
+# at position 1. This build refuses `pass <entry>` and `pass -c <entry>`, so
+# those completions are removed -- tab completion is where people learn a CLI,
+# and offering a spelling that exits 1 teaches the wrong one.
 
 complete -c $PROG -f -n '__fish_pass_needs_command' -a git -d 'Command: execute a git command'
 complete -c $PROG -f -n '__fish_pass_uses_command git' -a '(__fish_pass_git_complete)'

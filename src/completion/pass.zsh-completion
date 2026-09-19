@@ -35,7 +35,12 @@ _pass () {
 					"--path[gpg-id will only be applied to this subfolder]"
 				_pass_complete_keys
 				;;
-			ls|list|edit)
+			# STRICT: ls/list take a folder, never a leaf. Completing entries
+			# here proposes exactly the argument the build refuses.
+			ls|list)
+				_pass_complete_folders
+				;;
+			edit)
 				_pass_complete_entries_with_subdirs
 				;;
 			insert)
@@ -84,8 +89,18 @@ _pass () {
 				)
 				_describe -t commands 'pass git' subcommands
 				;;
-			show|*)
+			# STRICT: `ext` takes an extension name, never a password entry --
+			# the catch-all used to route it to _pass_cmd_show, offering the
+			# one argument `pass ext` refuses.
+			ext)
+				_message 'extension name'
+				;;
+			show)
 				_pass_cmd_show
+				;;
+			*)
+				# Unknown subcommand: this build refuses it rather than
+				# treating it as an entry, so offer nothing.
 				;;
 		esac
 	else
@@ -111,7 +126,8 @@ _pass () {
 		_arguments : \
 			"--version[Output version information]" \
 			"--help[Output help message]"
-		_pass_cmd_show
+		# STRICT: no _pass_cmd_show here. At position 1 it offered entry names,
+		# i.e. the `pass <entry>` spelling this build refuses.
 	fi
 }
 
@@ -134,6 +150,11 @@ _pass_complete_entries_with_subdirs () {
 
 _pass_complete_entries () {
 	_pass_complete_entries_helper -type f
+}
+
+# STRICT: ls/list accept a folder only, so this is what they complete with.
+_pass_complete_folders () {
+	_pass_complete_entries_helper -type d
 }
 
 _pass_complete_keys () {

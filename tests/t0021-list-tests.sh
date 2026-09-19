@@ -37,7 +37,33 @@ test_expect_success '"ls" refuses a leaf at the store root' '
 test_expect_success 'The refusal never prints the secret' '
 	secret="$("$PASS" show svc/token)" &&
 	[[ -n $secret ]] &&
-	! "$PASS" ls svc/token 2>&1 | grep -qF "$secret"
+	! "$PASS" ls svc/token 2>&1 | grep -qF -- "$secret"
+'
+
+# The guard sits textually ABOVE the clip/qrcode branch in cmd_show, which is
+# what makes these refuse rather than silently copying to the selection. That
+# placement is load-bearing and was untested: move the guard into the plain
+# print branch and every other case in this file still passes, while
+# `pass ls -c <leaf>` puts the password on the clipboard under a rule that
+# allows `pass ls *`.
+test_expect_success '"ls" refuses a leaf with --clip' '
+	test_must_fail "$PASS" ls --clip svc/token &&
+	test_must_fail "$PASS" ls -c svc/token
+'
+
+test_expect_success '"ls" refuses a leaf with --qrcode' '
+	test_must_fail "$PASS" ls --qrcode svc/token &&
+	test_must_fail "$PASS" ls -q svc/token
+'
+
+test_expect_success '"list" refuses a leaf with --clip' '
+	test_must_fail "$PASS" list -c svc/token
+'
+
+test_expect_success 'The --clip refusal never prints the secret either' '
+	secret="$("$PASS" show svc/token)" &&
+	[[ -n $secret ]] &&
+	! "$PASS" ls -c svc/token 2>&1 | grep -qF -- "$secret"
 '
 
 test_expect_success 'The refusal names show as the replacement' '
